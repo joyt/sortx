@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"reflect"
 	"sort"
+	"time"
 )
 
 const (
 	Ascending  = true
 	Descending = false
+
+	timeKind = reflect.Kind(100)
 )
 
 type sortedDocs struct {
@@ -18,6 +21,7 @@ type sortedDocs struct {
 	uints     []uint64
 	floats    []float64
 	strings   []string
+	times     []time.Time
 	size      int
 	docs      interface{}
 	fieldType reflect.Kind
@@ -39,7 +43,13 @@ func SortByField(docs interface{}, field string, order bool) {
 	if e.Kind() != reflect.Struct {
 		panic("Items to sort must be array or slice of structs")
 	}
-	sdocs.fieldType = e.FieldByName(field).Kind()
+
+	f := e.FieldByName(field)
+	sdocs.fieldType = f.Kind()
+	if _, ok := f.Interface().(time.Time); ok {
+		// Field is time.Time type.
+		sdocs.fieldType = timeKind
+	}
 	switch sdocs.fieldType {
 	case reflect.Invalid:
 		panic("Field provided to sort is invalid")
@@ -77,8 +87,14 @@ func SortByField(docs interface{}, field string, order bool) {
 			val := v.Index(i).FieldByName(field)
 			sdocs.floats[i] = val.Float()
 		}
+	case timeKind:
+		sdocs.times = make([]time.Time, sdocs.size)
+		for i := 0; i < sdocs.size; i++ {
+			val := v.Index(i).FieldByName(field)
+			sdocs.times[i] = val.Interface().(time.Time)
+		}
 	default:
-		panic("Field type is not supported comparable type (string, bool, int or float type)")
+		panic("Field type is not supported comparable type (string, bool, int, float, or time.Time type)")
 	}
 	sort.Sort(sdocs)
 }
@@ -98,6 +114,8 @@ func (s sortedDocs) Less(i, j int) bool {
 		b = s.uints[i] < s.uints[j]
 	case reflect.Float32, reflect.Float64:
 		b = s.floats[i] < s.floats[j]
+	case timeKind:
+		b = s.times[i].Before(s.times[j])
 	default:
 		return false
 	}
@@ -122,5 +140,7 @@ func (s sortedDocs) Swap(i, j int) {
 		s.uints[i], s.uints[j] = s.uints[j], s.uints[i]
 	case reflect.Float32, reflect.Float64:
 		s.floats[i], s.floats[j] = s.floats[j], s.floats[i]
+	case timeKind:
+		s.times[i], s.times[j] = s.times[j], s.times[i]
 	}
 }
